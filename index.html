@@ -1,0 +1,21 @@
+<html>
+<head>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <style></style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script>
+    let tiles = new L.TileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: 'Tiles © OpenStreeMaps'
+});
+let map = new L.Map("map", {
+        center: [1.347833, 103.809357], 
+        zoom: 11,
+    })
+    .addLayer(tiles);
+    
+  </script>
+</body>
+</html>
