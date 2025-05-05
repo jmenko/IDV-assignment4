@@ -2,129 +2,190 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Singapore Subzone Choropleth</title>
-  <!-- Ensure mobile-friendly scaling -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Singapore Subzone Population Distribution (June 2024)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
 
   <!-- Leaflet CSS -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet/dist/leaflet.css"
-  />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
   <style>
-    html, body, #map { margin:0; padding:0; height:100%; }
-    .info {
-      padding: 6px 8px;
-      background: rgba(255,255,255,0.8);
-      box-shadow: 0 0 15px rgba(0,0,0,0.2);
-      border-radius: 5px;
+    /* 1) Global & Helvetica */
+    html, body {
+      margin:0; padding:0;
+      height:100%;
+      display:flex; flex-direction:column;
+      font-family: Helvetica, Arial, sans-serif;
+      background:#fff;
     }
-    .info h4 { margin:0 0 5px; }
-    .legend { line-height: 18px; color: #555; }
-    .legend i { width:18px; height:18px; float:left; margin-right:8px; opacity:0.7; }
+    /* 2) Title & subtitles */
+    h1 {
+      margin:0.5em 0 0.1em;
+      text-align:center;
+      font-size:1.5em;
+      font-weight:bold;
+    }
+    .subtitle {
+      text-align:center;
+      margin:0 0 0.3em;
+      font-size:0.9em;
+    }
+    .subtitle a {
+      color:#0074D9;
+      text-decoration:none;
+    }
+    .subtitle a:hover {
+      text-decoration:underline;
+    }
+    .subtitle2 {
+      text-align:center;
+      margin:0 0 0.5em;
+      font-size:0.9em;
+      font-style:italic;
+    }
+    /* 3) Map container */
+    #map {
+      flex:1;
+      background:#fff;
+    }
+    /* 4) Info & legend */
+    .info, .legend {
+      background:rgba(255,255,255,0.9);
+      padding:6px 8px;
+      box-shadow:0 0 10px rgba(0,0,0,0.3);
+      border-radius:4px;
+      font-size:0.9em; color:#333;
+    }
+    .legend { line-height:18px; }
+    .legend i {
+      width:18px; height:18px; float:left;
+      margin-right:8px; opacity:0.7;
+    }
+    /* 5) Hide default Leaflet controls */
+    .leaflet-control-zoom,
+    .leaflet-control-attribution {
+      display:none;
+    }
   </style>
 </head>
 <body>
+  <h1>Singapore Subzone Population Distribution (June 2024)</h1>
+  <p class="subtitle">
+    Data Sourced from <a href="https://data.gov.sg" target="_blank">data.gov.sg</a>
+  </p>
+  <p class="subtitle2">Julian Menko - 1009439 | 02.526 - Interactive Data Visualisation | MSc Urban Science, Policy and Planning</p>
   <div id="map"></div>
 
-  <!-- D3.js & Leaflet.js from CDNs -->
+  <!-- Dependencies -->
   <script src="https://d3js.org/d3.v6.min.js"></script>
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
   <script>
-    // 1) Init map
-    const map = L.map('map').setView([1.3521, 103.8198], 11);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
+    // 1) Initialize map
+    const map = L.map('map',{ zoomControl:false, attributionControl:false })
+      .setView([1.3521,103.8198],11);
 
     // 2) Info & legend controls
     const info = L.control();
     info.onAdd = () => {
-      const div = L.DomUtil.create('div', 'info');
-      div.innerHTML = '<h4>Subzone Value</h4>Hover over a subzone';
-      return div;
+      const d = L.DomUtil.create('div','info');
+      d.innerHTML = '<h4>Population</h4>Hover a subzone';
+      return d;
     };
     info.addTo(map);
 
-    const legend = L.control({ position: 'bottomright' });
-    legend.onAdd = () => L.DomUtil.create('div', 'info legend');
+    const legend = L.control({position:'bottomright'});
+    legend.onAdd = () => L.DomUtil.create('div','info legend');
     legend.addTo(map);
 
-    // 3) Load CSV & GeoJSON, then draw
+    // 3) Helper to extract SUBZONE_N from the HTML table
+    function extractName(html) {
+      if (!html) return null;
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      for (const row of tmp.querySelectorAll('tr')) {
+        const th = row.querySelector('th'),
+              td = row.querySelector('td');
+        if (th && th.textContent.trim()==='SUBZONE_N' && td) {
+          return td.textContent.trim();
+        }
+      }
+      return null;
+    }
+
+    // 4) Load CSV + GeoJSON
     Promise.all([
       d3.csv('data.csv'),
-      fetch('https://chi-loong.github.io/IDV/assignments/sgmap.json')
-        .then(r => r.json())
-    ]).then(([rows, geojson]) => {
-      // Build lookup
+      fetch('Master Plan 2019 Subzone Boundary (No Sea) (GEOJSON).geojson').then(r=>r.json())
+    ]).then(([rows, geojson])=>{
+      // 4a) Sum population per subzone
       const dataByZone = {};
-      rows.forEach(r => {
-        const key = r['Subzone'].trim();
-        dataByZone[key] = +r['Value'];
+      rows.forEach(r=>{
+        const k = r.Subzone.trim().toLowerCase();
+        dataByZone[k] = (dataByZone[k]||0) + (+r.Value);
       });
 
-      // Color scale
-      const vals = Object.values(dataByZone);
-      const colorScale = d3.scaleQuantize()
-        .domain([d3.min(vals), d3.max(vals)])
-        .range(d3.schemeBlues[7]);
+      // 4b) Define your custom buckets here:
+      const thresholds = [10000, 30000, 50000, 80000, 110000, 150000];
+      const colorScale = d3.scaleThreshold()
+        .domain(thresholds)
+        .range(d3.schemeBlues[thresholds.length+1]);
 
-      function getColor(name) {
-        const v = dataByZone[name];
-        return v != null ? colorScale(v) : '#ccc';
-      }
-
-      // Style & interactivity
+      // 4c) Style function
       function style(f) {
+        const name = extractName(f.properties.Description);
+        const pop  = name ? dataByZone[name.toLowerCase()] : null;
         return {
-          fillColor: getColor(f.properties.subzone_n),
-          weight: 1, color: 'white', dashArray: '2', fillOpacity: 0.7
+          fillColor:   pop!=null ? colorScale(pop) : '#ccc',
+          weight:      1,
+          color:       '#888',
+          dashArray:   '0',
+          fillOpacity: 0.8
         };
       }
+
+      // 4d) Interactivity
       function highlight(e) {
-        const l = e.target;
-        l.setStyle({ weight: 3, color: '#666', fillOpacity: 0.9 }).bringToFront();
+        const lyr = e.target;
+        lyr.setStyle({weight:3,color:'#333',fillOpacity:1}).bringToFront();
+        const nm = extractName(lyr.feature.properties.Description) || 'Unknown';
+        const pv = dataByZone[nm.toLowerCase()] ?? 'n/a';
         info.getContainer().innerHTML =
-          `<h4>${l.feature.properties.subzone_n}</h4>` +
-          `<b>Value:</b> ${dataByZone[l.feature.properties.subzone_n] ?? 'n/a'}`;
+          `<h4>${nm}</h4><b>Population:</b> ${pv.toLocaleString()}`;
       }
       function reset(e) {
-        geoLayer.resetStyle(e.target);
-        info.getContainer().innerHTML = '<h4>Subzone Value</h4>Hover over a subzone';
+        geo.resetStyle(e.target);
+        info.getContainer().innerHTML = '<h4>Population</h4>Hover a subzone';
       }
-      function zoom(e) { map.fitBounds(e.target.getBounds()); }
-      function onEach(f, l) {
-        l.on({ mouseover: highlight, mouseout: reset, click: zoom });
-        l.bindPopup(
-          `<strong>${f.properties.subzone_n}</strong><br/>` +
-          `Value: ${dataByZone[f.properties.subzone_n] ?? 'n/a'}`
-        );
+      function zoomTo(e) {
+        map.fitBounds(e.target.getBounds());
+      }
+      function onEach(f,l) {
+        l.on({mouseover:highlight, mouseout:reset, click:zoomTo});
+        const nm = extractName(f.properties.Description) || 'Unknown';
+        const pv = dataByZone[nm.toLowerCase()] ?? 'n/a';
+        l.bindPopup(`<strong>${nm}</strong><br/>Population: ${pv.toLocaleString()}`);
       }
 
-      const geoLayer = L.geoJSON(geojson, {
-        style, onEachFeature: onEach
-      }).addTo(map);
+      // 5) Draw the choropleth
+      const geo = L.geoJSON(geojson,{ style, onEachFeature:onEach }).addTo(map);
 
-      // Build legend
-      const legendDiv = legend.getContainer();
-      const breaks = colorScale.thresholds();
-      legendDiv.innerHTML = '';
-      legendDiv.innerHTML +=
-        `<i style="background:${colorScale.range()[0]}"></i> < ${Math.round(breaks[0])}<br>`;
-      breaks.forEach((b, i) => {
-        const from = Math.round(breaks[i-1] || 0);
-        const to   = Math.round(b);
-        const col  = colorScale.range()[i+1];
-        legendDiv.innerHTML +=
-          `<i style="background:${col}"></i> ${from}&ndash;${to}<br>`;
-      });
-      legendDiv.innerHTML +=
-        `<i style="background:${colorScale.range().slice(-1)[0]}"></i> ≥ ${Math.round(d3.max(vals))}`;
-    })
-    .catch(err => {
-      console.error('Load error:', err);
-      alert('Failed to load data. Check console.');
+      // 6) Build the legend (with "Key:" header)
+      const lg = legend.getContainer();
+      const cols = colorScale.range();
+      lg.innerHTML = `<strong>Key:</strong><br>`;
+      // < first threshold
+      lg.innerHTML += `<i style="background:${cols[0]}"></i> < ${thresholds[0].toLocaleString()}<br>`;
+      // between thresholds
+      for (let i=1; i<thresholds.length; i++) {
+        lg.innerHTML +=
+          `<i style="background:${cols[i]}"></i> `+
+          `${thresholds[i-1].toLocaleString()} &ndash; ${thresholds[i].toLocaleString()}<br>`;
+      }
+      // ≥ last threshold
+      lg.innerHTML +=
+        `<i style="background:${cols[cols.length-1]}"></i> ≥ ${thresholds[thresholds.length-1].toLocaleString()}`;
+
+    }).catch(err=>{
+      console.error(err);
+      alert('Failed to load data. See console.');
     });
   </script>
 </body>
